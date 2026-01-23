@@ -13,7 +13,7 @@ function App() {
 
   const callGeminiAI = async (productName: string, reviews: string[]) => {
     // 1. นำ API Key ตัวใหม่ที่ลงท้ายด้วย ...KmQY มาใส่ตรงนี้
-    const API_KEY = "AIzaSyBC3CHyGjBocVwv_kt-9sgPpEwRwtPKmQY";
+    const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
     // 2. ใช้ชื่อโมเดลแบบ Full ID สำหรับรุ่น Flash (เสถียรที่สุดสำหรับ Free Tier)
     const MODEL = "models/gemini-2.5-flash";
