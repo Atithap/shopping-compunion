@@ -1,0 +1,361 @@
+/* Shopping Companion AI - Modern UI */
+:root {
+  --primary-color: #ff6b35;
+  --primary-dark: #d94d1f;
+  --secondary-color: #004e89;
+  --accent-color: #f7b801;
+  --success: #06d6a0;
+  --danger: #ef476f;
+  --warning: #f78c6b;
+  --background: #0f1419;
+  --surface: #1a202c;
+  --surface-light: #2d3748;
+  --text-primary: #ffffff;
+  --text-secondary: #cbd5e0;
+  --border-color: #404854;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.container {
+  width: 380px;
+  min-height: 100vh;
+  background: linear-gradient(135deg, var(--background) 0%, var(--secondary-color) 100%);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 16px;
+}
+
+/* Header Section */
+.header {
+  background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(255, 107, 53, 0.3);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logo-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  font-size: 36px;
+  animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.app-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  letter-spacing: -0.5px;
+}
+
+.app-subtitle {
+  font-size: 12px;
+  opacity: 0.9;
+  font-weight: 500;
+}
+
+.ai-badge {
+  background: var(--accent-color);
+  color: var(--background);
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Main Content */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Analyze Button */
+.analyze-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 24px;
+  background: linear-gradient(135deg, var(--accent-color) 0%, #fcc73a 100%);
+  color: var(--background);
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 6px 20px rgba(247, 184, 1, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.analyze-button:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 30px rgba(247, 184, 1, 0.5);
+}
+
+.analyze-button:active:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.analyze-button:disabled {
+  background: linear-gradient(135deg, #a0a0a0 0%, #808080 100%);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.button-icon {
+  font-size: 18px;
+  animation: spin 1.5s infinite;
+}
+
+.analyze-button:disabled .button-icon {
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.button-text {
+  font-size: 14px;
+}
+
+/* Results Container */
+.results-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: slideUp 0.4s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Result Cards */
+.result-card {
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+}
+
+.result-card:hover {
+  border-color: var(--primary-color);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.pros-card {
+  border-left: 4px solid var(--success);
+  background: linear-gradient(135deg, rgba(6, 214, 160, 0.1) 0%, rgba(6, 214, 160, 0.05) 100%);
+}
+
+.cons-card {
+  border-left: 4px solid var(--danger);
+  background: linear-gradient(135deg, rgba(239, 71, 111, 0.1) 0%, rgba(239, 71, 111, 0.05) 100%);
+}
+
+.verdict-card {
+  border-left: 4px solid var(--accent-color);
+  background: linear-gradient(135deg, rgba(247, 184, 1, 0.1) 0%, rgba(247, 184, 1, 0.05) 100%);
+}
+
+/* Card Header */
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.card-icon {
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+}
+
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 0;
+}
+
+.pros-card .card-title {
+  color: var(--success);
+}
+
+.cons-card .card-title {
+  color: var(--danger);
+}
+
+.verdict-card .card-title {
+  color: var(--accent-color);
+}
+
+/* Card List */
+.card-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.list-dot {
+  font-weight: bold;
+  margin-top: 2px;
+  min-width: 4px;
+}
+
+.pros-card .list-dot {
+  color: var(--success);
+}
+
+.cons-card .list-dot {
+  color: var(--danger);
+}
+
+.verdict-card .list-dot {
+  color: var(--accent-color);
+}
+
+/* Verdict Text */
+.verdict-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  font-weight: 500;
+  text-align: center;
+  margin: 0;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--primary-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-dark);
+}
+
+/* Responsive Design */
+@media (max-width: 400px) {
+  .container {
+    width: 100%;
+    min-height: 100vh;
+  }
+
+  .app-title {
+    font-size: 18px;
+  }
+
+  .app-subtitle {
+    font-size: 11px;
+  }
+
+  .analyze-button {
+    padding: 14px 20px;
+    font-size: 14px;
+  }
+
+  .result-card {
+    padding: 14px;
+  }
+
+  .card-title {
+    font-size: 13px;
+  }
+
+  .list-item {
+    font-size: 12px;
+  }
+}
