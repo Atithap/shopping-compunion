@@ -19,12 +19,24 @@ function App() {
     image?: string;
   }
 
-  const [similarProducts, setSimilarProducts] = useState<SimilarProduct[]>([]);
-  const [similarChecked, setSimilarChecked] = useState(false);
+  // const [similarProducts, setSimilarProducts] = useState<SimilarProduct[]>([]);
+  // const [similarChecked, setSimilarChecked] = useState(false);
   const [notification, setNotification] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null);
 
   // Quota cooldown (timestamp ms) when exceeding API limit
   const [quotaCooldown, setQuotaCooldown] = useState<number | null>(null);
+
+  // Debugging (hidden): press Shift+D to toggle
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<{ response?: any; aiResult?: any; aiError?: string } | null>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.key.toLowerCase() === 'd') setDebugOpen(v => !v);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   useEffect(() => {
     if (!quotaCooldown) return;
@@ -53,16 +65,16 @@ function App() {
 
 
   // Safe hostname extractor for display (returns domain without www.)
-  const getHost = (link: string | undefined) => {
-    if (!link) return '';
-    try {
-      const url = new URL(link);
-      return url.hostname.replace(/^www\./i, '');
-    } catch {
-      try { const m = String(link).match(/https?:\/\/([^\/]+)/i); if (m && m[1]) return m[1].replace(/^www\./i, ''); } catch {}
-      return link;
-    }
-  };
+  // const getHost = (link: string | undefined) => {
+  //   if (!link) return '';
+  //   try {
+  //     const url = new URL(link);
+  //     return url.hostname.replace(/^www\./i, '');
+  //   } catch {
+  //     try { const m = String(link).match(/https?:\/\/([^\/]+)/i); if (m && m[1]) return m[1].replace(/^www\./i, ''); } catch { }
+  //     return link;
+  //   }
+  // };
 
   const callGeminiAI = async (productName: string, reviews: string[]) => {
     // 1. นำ API Key ตัวใหม่ที่ลงท้ายด้วย ...KmQY มาใส่ตรงนี้
@@ -89,7 +101,7 @@ function App() {
         parts: [{ text: promptText }]
       }],
       generationConfig: {
-        response_mime_type: "application/json"
+        responseMimeType: "application/json"
       }
     };
 
@@ -118,14 +130,30 @@ function App() {
       throw new Error("AI ไม่สามารถให้คำตอบได้ในขณะนี้");
     }
 
-    const aiText = data.candidates[0].content.parts[0].text;
-    return JSON.parse(aiText) as AnalysisResult;
+    const part = data.candidates?.[0]?.content?.parts?.find(
+      (p: any) => typeof p.text === 'string'
+    );
+
+    if (!part?.text) {
+      throw new Error('AI response ไม่มีข้อความที่ parse ได้');
+    }
+
+    const aiText = part.text;
+
+    // 🔥 clean markdown code block
+    const cleaned = aiText
+      .replace(/```json/i, '')
+      .replace(/```/g, '')
+      .trim();
+
+    return JSON.parse(cleaned) as AnalysisResult;
+
   };
 
   const analyzeProduct = async () => {
     setLoading(true);
     setResult(null);
-    setSimilarChecked(false); // รีเซ็ตการตรวจสอบสินค้าใกล้เคียงแต่ละรอบ
+    // setSimilarChecked(false); // รีเซ็ตการตรวจสอบสินค้าใกล้เคียงแต่ละรอบ
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -134,9 +162,12 @@ function App() {
       chrome.tabs.sendMessage(tab.id, { action: "ANALYZE_REVIEWS" }, async (response) => {
         console.log('ANALYZE_REVIEWS response:', response);
         if (response) {
-          setSimilarChecked(true);
+          // capture content response for debugging
+          setDebugInfo(prev => ({ ...(prev || {}), response }));
+
+          // Compute deduped similar products locally (do not rely on commented state)
           const items = dedupeProducts(response.similarProducts || []);
-          setSimilarProducts(items);
+
           console.debug('สินค้าใกล้เคียง (หลังตั้งค่า):', items.length);
           if (items.length > 0) {
             showNotification('success', `พบ ${items.length} สินค้าใกล้เคียง`);
@@ -148,13 +179,62 @@ function App() {
         if (response && response.reviews && response.reviews.length > 0) {
           try {
             const aiResult = await callGeminiAI(response.name, response.reviews);
-            setResult(aiResult);
-            showNotification('success', 'วิเคราะห์สำเร็จ — ดูผลลัพธ์ด้านล่าง');
+            console.debug('AI raw result:', aiResult);
+            setDebugInfo(prev => ({ ...(prev || {}), aiResult }));
+
+            // Normalize AI output to ensure pros/cons arrays and a readable verdict
+            const normalized: AnalysisResult = {
+              pros: Array.isArray(aiResult.pros) && aiResult.pros.length ? aiResult.pros : ['ไม่พบข้อดีที่ชัดเจนจากรีวิว'],
+              cons: Array.isArray(aiResult.cons) && aiResult.cons.length ? aiResult.cons : ['ไม่พบข้อเสียที่ชัดเจนจากรีวิว'],
+              verdict: typeof aiResult.verdict === 'string' && aiResult.verdict.trim() ? aiResult.verdict : 'ไม่สามารถสรุปได้'
+            };
+
+            setResult(normalized);
+
+            if ((Array.isArray(aiResult.pros) && aiResult.pros.length === 0) && (Array.isArray(aiResult.cons) && aiResult.cons.length === 0)) {
+              showNotification('info', 'AI ให้คำตอบแต่ไม่พบข้อดี/ข้อเสียที่ชัดเจน — จะแสดงผล fallback');
+            } else {
+              showNotification('success', 'วิเคราะห์สำเร็จ — ดูผลลัพธ์ด้านล่าง');
+            }
           } catch (error: any) {
             console.error("AI Analysis Failed:", error);
             const msg: string = (error && error.message) ? String(error.message) : '';
+            setDebugInfo(prev => ({ ...(prev || {}), aiError: msg }));
 
             // Detect quota error from Gemini API and set cooldown
+            if (/quota/i.test(msg) || msg.includes('Quota exceeded') || msg.includes('rate-limits')) {
+              const match = msg.match(/Please retry in\s*([0-9.]+)s/i);
+              if (match) {
+                const secs = Math.max(1, Math.ceil(parseFloat(match[1])));
+                setQuotaCooldown(Date.now() + secs * 1000);
+                showNotification('error', `เกินโควต้า API — กรุณาลองอีกครั้งใน ${secs} วินาที หรือตรวจสอบแผนที่ https://ai.google.dev/gemini-api/docs/rate-limits`);
+              } else {
+                showNotification('error', 'เกินโควต้า API — โปรดตรวจสอบแผนและการชำระเงิน: https://ai.google.dev/gemini-api/docs/rate-limits');
+              }
+            } else {
+              showNotification('error', 'เกิดข้อผิดพลาดขณะวิเคราะห์: ' + (msg || 'ไม่ทราบสาเหตุ'));
+            }
+          }
+        } else if (response && response.fallback && response.fallback.length > 0) {
+          // If no direct reviews, try summarizing from product description / meta as fallback
+          showNotification('info', 'ไม่พบรีวิวโดยตรง — สรุปจากรายละเอียดสินค้าแทน');
+          try {
+            const aiResult = await callGeminiAI(response.name + ' (สรุปจากรายละเอียดสินค้า)', response.fallback);
+            console.debug('AI raw result (fallback):', aiResult);
+            setDebugInfo(prev => ({ ...(prev || {}), aiResult }));
+
+            const normalized: AnalysisResult = {
+              pros: Array.isArray(aiResult.pros) && aiResult.pros.length ? aiResult.pros : ['ไม่พบข้อดีที่ชัดเจนจากเนื้อหา'],
+              cons: Array.isArray(aiResult.cons) && aiResult.cons.length ? aiResult.cons : ['ไม่พบข้อเสียที่ชัดเจนจากเนื้อหา'],
+              verdict: typeof aiResult.verdict === 'string' && aiResult.verdict.trim() ? aiResult.verdict : 'ไม่สามารถสรุปได้'
+            };
+
+            setResult(normalized);
+            showNotification('success', 'สรุปจากรายละเอียดสินค้าเรียบร้อย — ตรวจสอบผลได้ด้านล่าง');
+          } catch (error: any) {
+            console.error('AI Fallback Failed:', error);
+            const msg: string = (error && error.message) ? String(error.message) : '';
+            setDebugInfo(prev => ({ ...(prev || {}), aiError: msg }));
             if (/quota/i.test(msg) || msg.includes('Quota exceeded') || msg.includes('rate-limits')) {
               const match = msg.match(/Please retry in\s*([0-9.]+)s/i);
               if (match) {
@@ -210,14 +290,14 @@ function App() {
         >
           <span className="button-icon">{loading ? <GearIcon /> : <BagIcon />}</span>
           <span className="button-text">
-            {loading ? 'กำลังวิเคราะห์...' : (quotaCooldown && Date.now() < quotaCooldown) ? `ลองอีกครั้งใน ${Math.ceil((quotaCooldown - Date.now())/1000)} วินาที` : 'วิเคราะห์รีวิว'}
+            {loading ? 'กำลังวิเคราะห์...' : (quotaCooldown && Date.now() < quotaCooldown) ? `ลองอีกครั้งใน ${Math.ceil((quotaCooldown - Date.now()) / 1000)} วินาที` : 'วิเคราะห์รีวิว'}
           </span>
         </button>
 
         {/* Quota note */}
         {quotaCooldown && Date.now() < quotaCooldown && (
           <div className="quota-note">
-            เกินโควต้า API — กรุณาลองอีกครั้งใน {Math.ceil((quotaCooldown - Date.now())/1000)} วินาที หรือดูรายละเอียดที่ <a href="https://ai.google.dev/gemini-api/docs/rate-limits" target="_blank" rel="noopener noreferrer">เอกสาร</a>
+            เกินโควต้า API — กรุณาลองอีกครั้งใน {Math.ceil((quotaCooldown - Date.now()) / 1000)} วินาที หรือดูรายละเอียดที่ <a href="https://ai.google.dev/gemini-api/docs/rate-limits" target="_blank" rel="noopener noreferrer">เอกสาร</a>
           </div>
         )}
 
@@ -263,7 +343,7 @@ function App() {
           </div>
         )}
 
-        <div className="similar-section">
+        {/* <div className="similar-section">
           <div className="section-header">
             <div className="section-left">
               <h3 className="section-title">สินค้าใกล้เคียง</h3>
@@ -310,7 +390,14 @@ function App() {
           )}
 
 
-        </div>
+        </div> */}
+
+        {debugOpen && (
+          <div className="debug-panel" role="region" aria-label="Debug" tabIndex={0}>
+            <div className="debug-header">Debug (กด Shift+D เพื่อสลับ)</div>
+            <pre className="debug-pre">{JSON.stringify(debugInfo, null, 2)}</pre>
+          </div>
+        )}
 
       </div>
     </div>

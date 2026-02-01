@@ -395,6 +395,18 @@
   margin-top: 8px;
 }
 
+/* Debug panel (hidden by default, toggle with Shift+D) */
+.debug-panel {
+  margin-top: 12px;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(255,255,255,0.04);
+  border-radius: 8px;
+  padding: 8px;
+  max-height: 180px;
+  overflow: auto;
+}
+.debug-header { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px }
+.debug-pre { font-size: 11px; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
 .section-header h3 {
   margin: 0;
   font-size: 14px;

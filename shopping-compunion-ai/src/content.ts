@@ -100,16 +100,50 @@ const findSimilarProducts = () => {
     return Array.from(map.values());
 };
 
+// หากไม่พบรีวิว ให้พยายามดึงข้อความสำคัญจากรายละเอียดสินค้า/meta เพื่อใช้เป็น fallback
+const getFallbackTexts = (): string[] => {
+    const texts = new Set<string>();
+
+    const ogDesc = document.querySelector('meta[property="og:description"]')?.getAttribute('content')?.trim();
+    if (ogDesc) texts.add(ogDesc);
+
+    const metaDesc = document.querySelector('meta[name="description"]')?.getAttribute('content')?.trim();
+    if (metaDesc) texts.add(metaDesc);
+
+    const selectors = ['.product-description', '#product-description', '[id*="description"]', '[class*="description"]', '.description', '.product-detail', '.specs', '.product-specs'];
+    for (const sel of selectors) {
+        document.querySelectorAll(sel).forEach(el => {
+            const t = el.textContent?.trim() || '';
+            if (t.length > 40 && t.length < 5000) texts.add(t);
+        });
+    }
+
+    // paragraphs near the title (take a few long paragraphs)
+    const title = document.querySelector('h1');
+    if (title) {
+        const paras = Array.from(document.querySelectorAll('p'))
+            .map(p => p.textContent?.trim() || '')
+            .filter(t => t.length > 60)
+            .slice(0, 3);
+        paras.forEach(p => texts.add(p));
+    }
+
+    // กำจัดความยาวเกินและคืนค่าจำนวนจำกัด
+    return Array.from(texts).slice(0, 3);
+};
+
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     if (request.action === "ANALYZE_REVIEWS") {
         const productName = document.querySelector('h1')?.textContent?.trim() || document.title;
         const reviews = getReviews();
         const similar = findSimilarProducts();
+        const fallback = getFallbackTexts();
 
         // ส่งผลลัพธ์กลับไป (แม้จะเป็นอาเรย์ว่าง ก็ส่งไปเพื่อเช็ก)
         sendResponse({
             name: productName,
             reviews: reviews,
+            fallback: fallback,
             similarProducts: similar
         });
     }
