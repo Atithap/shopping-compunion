@@ -196,10 +196,25 @@
   flex-direction: column;
   gap: 12px;
   animation: slideUp 0.4s ease-out;
-  max-height: 320px; /* ไม่ให้ผลลัพธ์ยืดตัวจนขยาย popup */
+  max-height: 420px; /* เพิ่มความสูงเพื่อให้ผลลัพธ์มีพื้นที่มากขึ้น */
   overflow-y: auto;
   padding-right: 6px;
 }
+
+/* Wrapper that places results and similar products side-by-side on wide popups */
+.results-and-similar {
+  display: grid;
+  gap: 12px;
+}
+.results-and-similar.with-similar {
+  grid-template-columns: 1fr; /* single column layout */
+  align-items: start;
+}
+
+/* Additional spacing when stacked */
+.results-and-similar .similar-section { margin-top: 12px; }
+.results-and-similar .results-container { max-height: 420px; }
+.results-and-similar .similar-section { max-height: 420px; overflow-y: auto; }
 
 .quota-note {
   margin-top: 8px;

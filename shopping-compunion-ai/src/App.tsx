@@ -19,8 +19,8 @@ function App() {
     image?: string;
   }
 
-  // const [similarProducts, setSimilarProducts] = useState<SimilarProduct[]>([]);
-  // const [similarChecked, setSimilarChecked] = useState(false);
+  const [similarProducts, setSimilarProducts] = useState<SimilarProduct[]>([]);
+  const [similarFetched, setSimilarFetched] = useState(false);
   const [notification, setNotification] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null);
 
   // Quota cooldown (timestamp ms) when exceeding API limit
@@ -65,16 +65,19 @@ function App() {
 
 
   // Safe hostname extractor for display (returns domain without www.)
-  // const getHost = (link: string | undefined) => {
-  //   if (!link) return '';
-  //   try {
-  //     const url = new URL(link);
-  //     return url.hostname.replace(/^www\./i, '');
-  //   } catch {
-  //     try { const m = String(link).match(/https?:\/\/([^\/]+)/i); if (m && m[1]) return m[1].replace(/^www\./i, ''); } catch { }
-  //     return link;
-  //   }
-  // };
+  const getHost = (link?: string) => {
+    if (!link) return '';
+    try {
+      return new URL(link).hostname.replace(/^www\./i, '');
+    } catch {
+      try {
+        const m = String(link).match(/https?:\/\/([^\/]+)/i);
+        if (m && m[1]) return m[1].replace(/^www\./i, '');
+      } catch { }
+      return String(link);
+    }
+  };
+
 
   const callGeminiAI = async (productName: string, reviews: string[]) => {
     // 1. นำ API Key ตัวใหม่ที่ลงท้ายด้วย ...KmQY มาใส่ตรงนี้
@@ -153,6 +156,8 @@ function App() {
   const analyzeProduct = async () => {
     setLoading(true);
     setResult(null);
+    setSimilarProducts([]);
+    setSimilarFetched(false);
     // setSimilarChecked(false); // รีเซ็ตการตรวจสอบสินค้าใกล้เคียงแต่ละรอบ
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -165,8 +170,11 @@ function App() {
           // capture content response for debugging
           setDebugInfo(prev => ({ ...(prev || {}), response }));
 
-          // Compute deduped similar products locally (do not rely on commented state)
+          // Compute deduped similar products locally (store in state for UI)
           const items = dedupeProducts(response.similarProducts || []);
+
+          setSimilarProducts(items);
+          setSimilarFetched(true);
 
           console.debug('สินค้าใกล้เคียง (หลังตั้งค่า):', items.length);
           if (items.length > 0) {
@@ -268,6 +276,16 @@ function App() {
             <div>
               <h1 className="app-title">Shopping Companion</h1>
             </div>
+            <button
+              onClick={analyzeProduct}
+              disabled={loading || Boolean(quotaCooldown && Date.now() < quotaCooldown)}
+              className="analyze-button"
+            >
+              <span className="button-icon">{loading ? <GearIcon /> : <BagIcon />}</span>
+              <span className="button-text">
+                {loading ? 'กำลังวิเคราะห์...' : (quotaCooldown && Date.now() < quotaCooldown) ? `ลองอีกครั้งใน ${Math.ceil((quotaCooldown - Date.now()) / 1000)} วินาที` : 'วิเคราะห์รีวิว'}
+              </span>
+            </button>
           </div>
 
         </div>
@@ -283,16 +301,7 @@ function App() {
       )}
 
       <div className="main-content">
-        <button
-          onClick={analyzeProduct}
-          disabled={loading || Boolean(quotaCooldown && Date.now() < quotaCooldown)}
-          className="analyze-button"
-        >
-          <span className="button-icon">{loading ? <GearIcon /> : <BagIcon />}</span>
-          <span className="button-text">
-            {loading ? 'กำลังวิเคราะห์...' : (quotaCooldown && Date.now() < quotaCooldown) ? `ลองอีกครั้งใน ${Math.ceil((quotaCooldown - Date.now()) / 1000)} วินาที` : 'วิเคราะห์รีวิว'}
-          </span>
-        </button>
+
 
         {/* Quota note */}
         {quotaCooldown && Date.now() < quotaCooldown && (
@@ -301,96 +310,99 @@ function App() {
           </div>
         )}
 
-        {result && (
-          <div className="results-container">
-            <div className="result-card pros-card">
-              <div className="card-header">
-                <span className="card-icon"><CheckIcon /></span>
-                <h3 className="card-title">Pros</h3>
-              </div>
-              <ul className="card-list">
-                {result.pros.map((p, i) => (
-                  <li key={i} className="list-item">
-                    <span className="list-dot">•</span>
-                    {p}
-                  </li>
-                ))}
-              </ul>
-            </div>
+        {(result || similarFetched) && (
+          <div className={`results-and-similar ${result && similarFetched ? 'with-similar' : ''}`}>
+            {result && (
+              <div className="results-container">
+                <div className="result-card pros-card">
+                  <div className="card-header">
+                    <span className="card-icon"><CheckIcon /></span>
+                    <h3 className="card-title">Pros</h3>
+                  </div>
+                  <ul className="card-list">
+                    {result.pros.map((p, i) => (
+                      <li key={i} className="list-item">
+                        <span className="list-dot">•</span>
+                        {p}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
 
-            <div className="result-card cons-card">
-              <div className="card-header">
-                <span className="card-icon"><WarningIcon /></span>
-                <h3 className="card-title">Cons</h3>
-              </div>
-              <ul className="card-list">
-                {result.cons.map((c, i) => (
-                  <li key={i} className="list-item">
-                    <span className="list-dot">•</span>
-                    {c}
-                  </li>
-                ))}
-              </ul>
-            </div>
+                <div className="result-card cons-card">
+                  <div className="card-header">
+                    <span className="card-icon"><WarningIcon /></span>
+                    <h3 className="card-title">Cons</h3>
+                  </div>
+                  <ul className="card-list">
+                    {result.cons.map((c, i) => (
+                      <li key={i} className="list-item">
+                        <span className="list-dot">•</span>
+                        {c}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
 
-            <div className="result-card verdict-card">
-              <div className="card-header">
-                <span className="card-icon"><LightIcon /></span>
-                <h3 className="card-title">Verdict</h3>
+                <div className="result-card verdict-card">
+                  <div className="card-header">
+                    <span className="card-icon"><LightIcon /></span>
+                    <h3 className="card-title">Verdict</h3>
+                  </div>
+                  <p className="verdict-text">{result.verdict}</p>
+                </div>
               </div>
-              <p className="verdict-text">{result.verdict}</p>
-            </div>
+            )}
+
+            {similarFetched && (
+              <div className="similar-section">
+                <div className="section-header">
+                  <div className="section-left">
+                    <h3 className="section-title">สินค้าใกล้เคียง</h3>
+                    <span className="count-badge" aria-hidden>{similarProducts.length}</span>
+                  </div>
+
+                </div>
+
+                {similarProducts.length === 0 && (
+                  <div className="similar-empty">ไม่พบสินค้าใกล้เคียงบนหน้านี้</div>
+                )}
+
+                {similarProducts.length > 0 && (
+                  <div className="similar-grid similar-list-compact">
+                    {similarProducts.map((p, i) => (
+                      <div
+                        key={i}
+                        className="product-row"
+                        role="link"
+                        tabIndex={0}
+                        onClick={() => p.link && chrome.tabs.create({ url: p.link })}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.link && chrome.tabs.create({ url: p.link }); } }}
+                      >
+                        <div className="product-thumb-small">
+                          {p.image ? <img src={p.image} alt={p.name} /> : <div className="thumb-placeholder-small">🛒</div>}
+                        </div>
+
+                        <div className="product-main">
+                          <div className="product-name-compact clamp-2" title={p.name}>{p.name}</div>
+                          {p.link && <div className="product-source-compact">{getHost(p.link)}</div>}
+                        </div>
+
+                        <div className="product-right">
+                          <div className="product-price-compact">{p.price || '-'}</div>
+                          {p.link && <button className="product-action small" onClick={(e) => { e.stopPropagation(); chrome.tabs.create({ url: p.link }); }}>ดู</button>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+
+              </div>
+            )}
+
           </div>
         )}
-
-        {/* <div className="similar-section">
-          <div className="section-header">
-            <div className="section-left">
-              <h3 className="section-title">สินค้าใกล้เคียง</h3>
-              <span className="count-badge" aria-hidden>{similarProducts.length}</span>
-            </div>
-
-          </div>
-
-          {similarProducts.length === 0 && similarChecked && (
-            <div className="similar-empty">ไม่พบสินค้าใกล้เคียงบนหน้านี้</div>
-          )}
-
-          {similarProducts.length === 0 && !similarChecked && (
-            <div className="similar-empty">ยังไม่ได้ค้นหาสินค้าใกล้เคียง </div>
-          )}
-
-          {similarProducts.length > 0 && (
-            <div className="similar-grid similar-list-compact">
-              {similarProducts.map((p, i) => (
-                <div
-                  key={i}
-                  className="product-row"
-                  role="link"
-                  tabIndex={0}
-                  onClick={() => p.link && chrome.tabs.create({ url: p.link })}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.link && chrome.tabs.create({ url: p.link }); } }}
-                >
-                  <div className="product-thumb-small">
-                    {p.image ? <img src={p.image} alt={p.name} /> : <div className="thumb-placeholder-small">🛒</div>}
-                  </div>
-
-                  <div className="product-main">
-                    <div className="product-name-compact clamp-2" title={p.name}>{p.name}</div>
-                    {p.link && <div className="product-source-compact">{getHost(p.link)}</div>}
-                  </div>
-
-                  <div className="product-right">
-                    <div className="product-price-compact">{p.price || '-'}</div>
-                    {p.link && <button className="product-action small" onClick={(e) => { e.stopPropagation(); chrome.tabs.create({ url: p.link }); }}>ดู</button>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-
-        </div> */}
 
         {debugOpen && (
           <div className="debug-panel" role="region" aria-label="Debug" tabIndex={0}>
