@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import './App.css'
-import { CartIcon, GearIcon, BagIcon, SuccessIcon, ErrorIcon, InfoIcon, CheckIcon, WarningIcon, LightIcon } from './icons'
+import { GearIcon, BagIcon, SuccessIcon, ErrorIcon, InfoIcon, CheckIcon, WarningIcon, LightIcon } from './icons'
 
 interface AnalysisResult {
   pros: string[];
@@ -20,8 +20,9 @@ function App() {
   }
 
   const [similarProducts, setSimilarProducts] = useState<SimilarProduct[]>([]);
-  const [similarFetched, setSimilarFetched] = useState(false);
   const [notification, setNotification] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
 
   // Quota cooldown (timestamp ms) when exceeding API limit
   const [quotaCooldown, setQuotaCooldown] = useState<number | null>(null);
@@ -29,6 +30,9 @@ function App() {
   // Debugging (hidden): press Shift+D to toggle
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugInfo, setDebugInfo] = useState<{ response?: any; aiResult?: any; aiError?: string } | null>(null);
+
+  const MAX_REVIEWS = 20;
+  const MAX_LENGTH = 300;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -49,6 +53,25 @@ function App() {
   const showNotification = (type: 'info' | 'success' | 'error', message: string) => {
     setNotification({ type, message });
     setTimeout(() => setNotification(null), 4500);
+  };
+
+  const handleSetApiKey = async () => {
+    console.log('[App] handleSetApiKey called, input length:', apiKeyInput.length);
+    if (!apiKeyInput.trim()) {
+      alert('Please enter an API key');
+      return;
+    }
+    console.log('[App] Sending SET_GEMINI_API_KEY message');
+    chrome.runtime.sendMessage({ action: 'SET_GEMINI_API_KEY', apiKey: apiKeyInput }, (response) => {
+      console.log('[App] SET_GEMINI_API_KEY response:', response);
+      if (response?.success) {
+        alert('✓ API key saved! You can now analyze products.');
+        setApiKeyInput('');
+        setShowApiKeyInput(false);
+      } else {
+        alert('Failed to save API key: ' + (response?.error || 'Unknown error'));
+      }
+    });
   };
 
   const dedupeProducts = (items: SimilarProduct[]) => {
@@ -80,87 +103,33 @@ function App() {
 
 
   const callGeminiAI = async (productName: string, reviews: string[]) => {
-    // 1. นำ API Key ตัวใหม่ที่ลงท้ายด้วย ...KmQY มาใส่ตรงนี้
-    const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-
-    // 2. ใช้ชื่อโมเดลแบบ Full ID สำหรับรุ่น Flash (เสถียรที่สุดสำหรับ Free Tier)
-    const MODEL = "models/gemini-2.5-flash";
-    const URL = `https://generativelanguage.googleapis.com/v1beta/${MODEL}:generateContent?key=${API_KEY}`;
-
-    const promptText = `
-      ในฐานะผู้เชี่ยวชาญด้านสินค้า จงสรุปรีวิวจากผู้ซื้อสินค้า: "${productName}"
-      โดยวิเคราะห์จากรีวิวเหล่านี้: ${reviews.join(" | ")}
-
-      ตอบกลับเป็น JSON ภาษาไทยเท่านั้น (ห้ามมีคำเกริ่น):
-      {
-        "pros": ["สรุปข้อดีเป็นข้อๆ"],
-        "cons": ["สรุปข้อเสียหรือปัญหาที่พบ"],
-        "verdict": "สรุปสั้นๆ ว่าน่าซื้อหรือไม่"
-      }
-    `;
-
-    const requestBody = {
-      contents: [{
-        parts: [{ text: promptText }]
-      }],
-      generationConfig: {
-        responseMimeType: "application/json"
-      }
-    };
-
-    const response = await fetch(URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestBody)
+    // Use background script to fetch (has proper host permissions)
+    return new Promise<AnalysisResult>((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { action: 'CALL_GEMINI_AI', productName, reviews },
+        (response: any) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message || 'Background script error'));
+          } else if (response?.success) {
+            resolve(response.data as AnalysisResult);
+          } else {
+            reject(new Error(response?.error || 'Unknown error'));
+          }
+        }
+      );
     });
-
-    // ตรวจสอบสถานะการตอบกลับ
-    if (!response.ok) {
-      const errorData = await response.json();
-      const errorMsg = errorData.error?.message || "Unknown API Error";
-
-      // ถ้ายังเจอ 404 ให้แจ้งเตือนผู้ใช้ว่าอาจต้องเปลี่ยนชื่อโมเดล
-      if (response.status === 404) {
-        throw new Error("ไม่พบรุ่นโมเดล (404) ");
-      }
-      throw new Error(errorMsg);
-    }
-
-    const data = await response.json();
-
-    // ตรวจสอบว่ามีข้อมูลตอบกลับมาไหม
-    if (!data.candidates || data.candidates.length === 0) {
-      throw new Error("AI ไม่สามารถให้คำตอบได้ในขณะนี้");
-    }
-
-    const part = data.candidates?.[0]?.content?.parts?.find(
-      (p: any) => typeof p.text === 'string'
-    );
-
-    if (!part?.text) {
-      throw new Error('AI response ไม่มีข้อความที่ parse ได้');
-    }
-
-    const aiText = part.text;
-
-    // 🔥 clean markdown code block
-    const cleaned = aiText
-      .replace(/```json/i, '')
-      .replace(/```/g, '')
-      .trim();
-
-    return JSON.parse(cleaned) as AnalysisResult;
-
   };
 
   const analyzeProduct = async () => {
     setLoading(true);
     setResult(null);
     setSimilarProducts([]);
-    setSimilarFetched(false);
     // setSimilarChecked(false); // รีเซ็ตการตรวจสอบสินค้าใกล้เคียงแต่ละรอบ
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (loading) return;
+
 
     if (tab?.id) {
       // ส่งคำสั่งไปหา content.ts เพื่อดูดข้อมูลรีวิว
@@ -174,7 +143,6 @@ function App() {
           const items = dedupeProducts(response.similarProducts || []);
 
           setSimilarProducts(items);
-          setSimilarFetched(true);
 
           console.debug('สินค้าใกล้เคียง (หลังตั้งค่า):', items.length);
           if (items.length > 0) {
@@ -185,8 +153,27 @@ function App() {
         }
 
         if (response && response.reviews && response.reviews.length > 0) {
+          // Prepare limited reviews and cache key
+          const limitedReviews = response.reviews
+            .slice(0, MAX_REVIEWS)
+            .map((r: string) => r.slice(0, MAX_LENGTH));
+
+          const cacheKey = `analysis_${tab?.url}`;
           try {
-            const aiResult = await callGeminiAI(response.name, response.reviews);
+            const cached = await chrome.storage.local.get(cacheKey);
+            if (cached && cached[cacheKey]) {
+              setResult(cached[cacheKey] as AnalysisResult);
+              showNotification('info', 'โหลดจากแคช ไม่เรียก AI');
+              setLoading(false);
+              return;
+            }
+          } catch (e) {
+            // ignore storage errors and continue
+            console.warn('Storage read failed', e);
+          }
+
+          try {
+            const aiResult = await callGeminiAI(response.name, limitedReviews);
             console.debug('AI raw result:', aiResult);
             setDebugInfo(prev => ({ ...(prev || {}), aiResult }));
 
@@ -198,6 +185,8 @@ function App() {
             };
 
             setResult(normalized);
+            // cache result
+            try { await chrome.storage.local.set({ [cacheKey]: normalized }); } catch (e) { /* ignore */ }
 
             if ((Array.isArray(aiResult.pros) && aiResult.pros.length === 0) && (Array.isArray(aiResult.cons) && aiResult.cons.length === 0)) {
               showNotification('info', 'AI ให้คำตอบแต่ไม่พบข้อดี/ข้อเสียที่ชัดเจน — จะแสดงผล fallback');
@@ -227,7 +216,19 @@ function App() {
           // If no direct reviews, try summarizing from product description / meta as fallback
           showNotification('info', 'ไม่พบรีวิวโดยตรง — สรุปจากรายละเอียดสินค้าแทน');
           try {
-            const aiResult = await callGeminiAI(response.name + ' (สรุปจากรายละเอียดสินค้า)', response.fallback);
+            const limitedFallback = response.fallback.slice(0, MAX_REVIEWS).map((r: string) => r.slice(0, MAX_LENGTH));
+            const cacheKey = `analysis_${tab?.url}`;
+            try {
+              const cached = await chrome.storage.local.get(cacheKey);
+              if (cached && cached[cacheKey]) {
+                setResult(cached[cacheKey] as AnalysisResult);
+                showNotification('info', 'โหลดจากแคช ไม่เรียก AI');
+                setLoading(false);
+                return;
+              }
+            } catch (e) { console.warn('Storage read failed', e); }
+
+            const aiResult = await callGeminiAI(response.name + ' (สรุปจากรายละเอียดสินค้า)', limitedFallback);
             console.debug('AI raw result (fallback):', aiResult);
             setDebugInfo(prev => ({ ...(prev || {}), aiResult }));
 
@@ -238,6 +239,7 @@ function App() {
             };
 
             setResult(normalized);
+            try { await chrome.storage.local.set({ [cacheKey]: normalized }); } catch (e) { /* ignore */ }
             showNotification('success', 'สรุปจากรายละเอียดสินค้าเรียบร้อย — ตรวจสอบผลได้ด้านล่าง');
           } catch (error: any) {
             console.error('AI Fallback Failed:', error);
@@ -268,28 +270,56 @@ function App() {
 
   return (
     <div className="container">
+      {/* API Key Setup - Always visible if not set */}
+      {showApiKeyInput && (
+        <div style={{ padding: '12px', backgroundColor: 'rgba(79,70,229,0.1)', borderBottom: '1px solid var(--border-soft)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ fontSize: '12px', fontWeight: 600 }}>Enter Gemini API Key:</div>
+          <input
+            autoFocus
+            type="password"
+            value={apiKeyInput}
+            onChange={(e) => setApiKeyInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSetApiKey()}
+            placeholder="Paste your Gemini API key here"
+            style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border-soft)', fontSize: '12px', width: '100%', boxSizing: 'border-box' }}
+          />
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={handleSetApiKey} style={{ flex: 1, padding: '8px', borderRadius: '6px', border: 'none', background: 'var(--success)', color: 'white', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>Save Key</button>
+            <button onClick={() => { setShowApiKeyInput(false); setApiKeyInput(''); }} style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid var(--border-soft)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '12px' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {!showApiKeyInput && (
+        <div style={{ padding: '8px 12px', fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', borderBottom: '1px solid var(--border-soft)' }}>
+          <button onClick={() => setShowApiKeyInput(true)} style={{ background: 'transparent', border: 'none', color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline', fontSize: '11px' }}>⚙️ Set API Key</button>
+        </div>
+      )}
+
       <header className="header">
         <div className="header-content">
-
-          <div className="logo-section">
-            <span className="logo-icon"><CartIcon /></span>
-            <div>
-              <h1 className="app-title">Shopping Companion</h1>
-            </div>
-            <button
-              onClick={analyzeProduct}
-              disabled={loading || Boolean(quotaCooldown && Date.now() < quotaCooldown)}
-              className="analyze-button"
-            >
-              <span className="button-icon">{loading ? <GearIcon /> : <BagIcon />}</span>
-              <span className="button-text">
-                {loading ? 'กำลังวิเคราะห์...' : (quotaCooldown && Date.now() < quotaCooldown) ? `ลองอีกครั้งใน ${Math.ceil((quotaCooldown - Date.now()) / 1000)} วินาที` : 'วิเคราะห์รีวิว'}
-              </span>
-            </button>
-          </div>
-
+          <button
+            onClick={analyzeProduct}
+            disabled={loading || Boolean(quotaCooldown && Date.now() < quotaCooldown)}
+            className="analyze-button header-analyze"
+            aria-label="วิเคราะห์"
+          >
+            <span className="button-icon">{loading ? <GearIcon /> : <BagIcon />}</span>
+            <span className="button-text">
+              {loading ? 'กำลังวิเคราะห์...' : (quotaCooldown && Date.now() < quotaCooldown) ? `ลองอีกครั้งใน ${Math.ceil((quotaCooldown - Date.now()) / 1000)} วินาที` : 'วิเคราะห์'}
+            </span>
+          </button>
         </div>
       </header>
+
+      {/* Quick status for debugging message delivery */}
+      <div style={{ padding: '6px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+        {debugInfo?.response ? (
+          <div>Received content script response — reviews: {Array.isArray(debugInfo.response.reviews) ? debugInfo.response.reviews.length : 0}, fallback: {Array.isArray(debugInfo.response.fallback) ? debugInfo.response.fallback.length : 0}, similar: {Array.isArray(debugInfo.response.similarProducts) ? debugInfo.response.similarProducts.length : 0}</div>
+        ) : (
+          <div>No content response yet — ensure you're on a supported product page (Shopee/Lazada) and try again.</div>
+        )}
+      </div>
 
       {/* Toast Notification */}
       {notification && (
@@ -310,97 +340,47 @@ function App() {
           </div>
         )}
 
-        {(result || similarFetched) && (
-          <div className={`results-and-similar ${result && similarFetched ? 'with-similar' : ''}`}>
-            {result && (
-              <div className="results-container">
-                <div className="result-card pros-card">
-                  <div className="card-header">
-                    <span className="card-icon"><CheckIcon /></span>
-                    <h3 className="card-title">Pros</h3>
-                  </div>
-                  <ul className="card-list">
-                    {result.pros.map((p, i) => (
-                      <li key={i} className="list-item">
-                        <span className="list-dot">•</span>
-                        {p}
-                      </li>
-                    ))}
-                  </ul>
+        {result && (
+          <div className={`results-and-similar single-column`}>
+            <div className="results-container">
+              <div className="result-card pros-card">
+                <div className="card-header">
+                  <span className="card-icon"><CheckIcon /></span>
+                  <h3 className="card-title">Pros</h3>
                 </div>
-
-                <div className="result-card cons-card">
-                  <div className="card-header">
-                    <span className="card-icon"><WarningIcon /></span>
-                    <h3 className="card-title">Cons</h3>
-                  </div>
-                  <ul className="card-list">
-                    {result.cons.map((c, i) => (
-                      <li key={i} className="list-item">
-                        <span className="list-dot">•</span>
-                        {c}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="result-card verdict-card">
-                  <div className="card-header">
-                    <span className="card-icon"><LightIcon /></span>
-                    <h3 className="card-title">Verdict</h3>
-                  </div>
-                  <p className="verdict-text">{result.verdict}</p>
-                </div>
+                <ul className="card-list">
+                  {result.pros.map((p, i) => (
+                    <li key={i} className="list-item">
+                      <span className="list-dot">•</span>
+                      {p}
+                    </li>
+                  ))}
+                </ul>
               </div>
-            )}
 
-            {similarFetched && (
-              <div className="similar-section">
-                <div className="section-header">
-                  <div className="section-left">
-                    <h3 className="section-title">สินค้าใกล้เคียง</h3>
-                    <span className="count-badge" aria-hidden>{similarProducts.length}</span>
-                  </div>
-
+              <div className="result-card cons-card">
+                <div className="card-header">
+                  <span className="card-icon"><WarningIcon /></span>
+                  <h3 className="card-title">Cons</h3>
                 </div>
-
-                {similarProducts.length === 0 && (
-                  <div className="similar-empty">ไม่พบสินค้าใกล้เคียงบนหน้านี้</div>
-                )}
-
-                {similarProducts.length > 0 && (
-                  <div className="similar-grid similar-list-compact">
-                    {similarProducts.map((p, i) => (
-                      <div
-                        key={i}
-                        className="product-row"
-                        role="link"
-                        tabIndex={0}
-                        onClick={() => p.link && chrome.tabs.create({ url: p.link })}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.link && chrome.tabs.create({ url: p.link }); } }}
-                      >
-                        <div className="product-thumb-small">
-                          {p.image ? <img src={p.image} alt={p.name} /> : <div className="thumb-placeholder-small">🛒</div>}
-                        </div>
-
-                        <div className="product-main">
-                          <div className="product-name-compact clamp-2" title={p.name}>{p.name}</div>
-                          {p.link && <div className="product-source-compact">{getHost(p.link)}</div>}
-                        </div>
-
-                        <div className="product-right">
-                          <div className="product-price-compact">{p.price || '-'}</div>
-                          {p.link && <button className="product-action small" onClick={(e) => { e.stopPropagation(); chrome.tabs.create({ url: p.link }); }}>ดู</button>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-
+                <ul className="card-list">
+                  {result.cons.map((c, i) => (
+                    <li key={i} className="list-item">
+                      <span className="list-dot">•</span>
+                      {c}
+                    </li>
+                  ))}
+                </ul>
               </div>
-            )}
 
+              <div className="result-card verdict-card">
+                <div className="card-header">
+                  <span className="card-icon"><LightIcon /></span>
+                  <h3 className="card-title">Verdict</h3>
+                </div>
+                <p className="verdict-text">{result.verdict}</p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -410,6 +390,36 @@ function App() {
             <pre className="debug-pre">{JSON.stringify(debugInfo, null, 2)}</pre>
           </div>
         )}
+
+        <footer className="footer">
+          <div className="footer-inner">
+            <div className="footer-header">
+              <h4 className="footer-title">สินค้าใกล้เคียง</h4>
+              <span className="count-badge" aria-hidden>{similarProducts.length}</span>
+            </div>
+
+            {similarProducts.length === 0 && (
+              <div className="similar-empty">ไม่พบสินค้าใกล้เคียงบนหน้านี้</div>
+            )}
+
+            {similarProducts.length > 0 && (
+              <div className="similar-grid footer-grid">
+                {similarProducts.map((p, i) => (
+                  <div key={i} className="product-card-small" onClick={() => p.link && chrome.tabs.create({ url: p.link })} role="link" tabIndex={0}>
+                    <div className="product-thumb-small">
+                      {p.image ? <img src={p.image} alt={p.name} /> : <div className="thumb-placeholder-small">🛒</div>}
+                    </div>
+                    <div className="product-info-small">
+                      <div className="product-name-compact clamp-2" title={p.name}>{p.name}</div>
+                      {p.link && <div className="product-source-compact">{getHost(p.link)}</div>}
+                      <div className="product-price-compact">{p.price || '-'}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </footer>
 
       </div>
     </div>

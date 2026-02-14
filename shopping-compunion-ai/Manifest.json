@@ -5,9 +5,13 @@
   "action": {
     "default_popup": "index.html"
   },
+  "background": {
+    "service_worker": "src/background.ts"
+  },
   "permissions": [
     "activeTab",
-    "tabs"
+    "tabs",
+    "storage"
   ],
   "host_permissions": [
     "https://generativelanguage.googleapis.com/*"
